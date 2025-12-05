@@ -416,8 +416,8 @@ class Game:
 
             if self.state == STATE_DIALOGUE:
                 pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT-120, SCREEN_WIDTH, 120))
-                name = font_title.render("Joyce:", True, RED)
-                msg = font_subtitle.render('"Will, Where are you?"', True, WHITE)
+                name = font_subtitle.render("Joyce:", True, WHITE)
+                msg = font_subtitle.render('"Baby,Talk to me. Where are you?"', True, WHITE)
                 hint = font_debug.render("(Click to start connection...)", True, GRAY)
                 screen.blit(name, (50, SCREEN_HEIGHT - 100))
                 screen.blit(msg, (170, SCREEN_HEIGHT - 95))
@@ -436,7 +436,7 @@ class Game:
                 
                 elif self.game_phase == "input":
                     pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT-80, SCREEN_WIDTH, 80))
-                    prompt = font_subtitle.render("TYPE: " + self.user_input + "_", True, RED)
+                    prompt = font_subtitle.render("Write the code: " + self.user_input + "_", True, WHITE)
                     screen.blit(prompt, (50, SCREEN_HEIGHT - 55))
                 
                 if self.debug_mode:
