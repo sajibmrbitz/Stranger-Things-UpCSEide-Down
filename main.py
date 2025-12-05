@@ -1,543 +1,327 @@
 import pygame
-import os
 import sys
-import random
-import math
+import time
+import os
 
-# --- 1. SYSTEM SETUP ---
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-ASSETS_DIR = os.path.join(BASE_DIR, "assets")
-HIGHSCORE_FILE = os.path.join(BASE_DIR, "highscore.txt")
-
+# --- Initialization ---
 pygame.init()
+pygame.font.init()
 pygame.mixer.init()
 
-# Screen Settings
-GAME_WIDTH = 800
-GAME_HEIGHT = 600
-screen = pygame.display.set_mode((GAME_WIDTH, GAME_HEIGHT), pygame.RESIZABLE)
-pygame.display.set_caption("STRANGER THINGS: HAWKINS DEFENDER (ULTIMATE)")
+# --- PATH SETUP ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ASSET_PATH = os.path.join(BASE_DIR, "assets")
 
-# We keep canvas for the Retro Resolution + CRT Effect scaling
-canvas = pygame.Surface((GAME_WIDTH, GAME_HEIGHT))
+# --- Screen Settings ---
+SCREEN_WIDTH = 1280
+SCREEN_HEIGHT = 720
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Stranger Things: The Game (Season 1)")
+
+# Colors
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+RED = (200, 0, 0)
+YELLOW = (255, 215, 0)
+CYAN = (0, 255, 255)
+GRAY = (50, 50, 50)
+
+# Fonts
+font_title = pygame.font.SysFont("Arial", 40, bold=True)
+font_subtitle = pygame.font.SysFont("Courier New", 28, bold=True)
+font_debug = pygame.font.SysFont("Arial", 16)
+
 clock = pygame.time.Clock()
 
-# --- COLORS ---
-SKY_BLUE = (20, 20, 40)
-UPSIDE_DOWN_RED = (40, 0, 0) # Dark Red Background
-NEON_RED = (255, 50, 50)     # Enemy
-NEON_GREEN = (50, 255, 50)   # Friend
-NEON_BLUE = (0, 200, 255)    # Ultimate Energy
-WHITE = (255, 255, 255)
-GOLD = (255, 215, 0)
-BLACK = (0, 0, 0)
-GRAY = (128, 128, 128)
+# --- HELPER: Auto-Scale Image ---
+def draw_image_fit(surface, img):
+    if img is None: return pygame.Rect(0,0,0,0)
+    img_w, img_h = img.get_size()
+    ratio_w = SCREEN_WIDTH / img_w
+    ratio_h = SCREEN_HEIGHT / img_h
+    scale = min(ratio_w, ratio_h)
+    new_w = int(img_w * scale)
+    new_h = int(img_h * scale)
+    scaled_img = pygame.transform.smoothscale(img, (new_w, new_h))
+    x = (SCREEN_WIDTH - new_w) // 2
+    y = (SCREEN_HEIGHT - new_h) // 2
+    surface.blit(scaled_img, (x, y))
+    return pygame.Rect(x, y, new_w, new_h)
 
-# --- FONTS ---
-try:
-    FONT_HUD = pygame.font.SysFont("Impact", 30)
-    FONT_MSG = pygame.font.SysFont("Arial", 14, bold=True)
-    FONT_BIG = pygame.font.SysFont("Impact", 60)
-    FONT_MENU = pygame.font.SysFont("Courier New", 40, bold=True) # Retro Font
-except:
-    FONT_HUD = pygame.font.Font(None, 30)
-    FONT_MSG = pygame.font.Font(None, 20)
-    FONT_BIG = pygame.font.Font(None, 60)
-    FONT_MENU = pygame.font.Font(None, 50)
-
-# --- 2. ASSET MANAGER ---
-class AssetLoader:
-    def __init__(self):
-        self.images = {}
-        self.sounds = {}
-
-    def get_image(self, filename, size, color, label="?"):
-        if filename in self.images: return self.images[filename]
-        
-        path = os.path.join(ASSETS_DIR, filename)
-        if os.path.exists(path):
-            try:
-                img = pygame.image.load(path).convert_alpha()
-                img = pygame.transform.scale(img, size)
-                self.images[filename] = img
-                return img
-            except: pass
-        
-        # Placeholder
-        surf = pygame.Surface(size)
-        surf.fill(color)
-        pygame.draw.rect(surf, WHITE, surf.get_rect(), 2)
-        txt = FONT_MSG.render(label, True, (0,0,0))
-        surf.blit(txt, txt.get_rect(center=(size[0]//2, size[1]//2)))
-        self.images[filename] = surf
+# --- Asset Loading ---
+def load_image(name):
+    fullname = os.path.join(ASSET_PATH, name)
+    try:
+        img = pygame.image.load(fullname).convert_alpha()
+        return img
+    except Exception as e:
+        print(f"[ERROR] Missing Image: {name}")
+        surf = pygame.Surface((400, 300))
+        surf.fill(GRAY)
         return surf
 
-    def load_audio(self):
-        m_path = os.path.join(ASSETS_DIR, "theme.mp3")
-        if os.path.exists(m_path):
-            try:
-                pygame.mixer.music.load(m_path)
-                pygame.mixer.music.set_volume(0.3)
-                pygame.mixer.music.play(-1)
-            except: pass
-        
-        self.sounds['shoot'] = self._load_sfx("blast.wav")
-        self.sounds['hit'] = self._load_sfx("screech.wav")
-        self.sounds['rescue'] = self._load_sfx("powerup.wav")
-        self.sounds['ultimate'] = self._load_sfx("ultimate.wav")
-        self.sounds['select'] = self._load_sfx("select.wav") # New Menu Sound
+assets = {
+    "logo": load_image("Stranger_Things_logo.png"),
+    "menu": load_image("starting-image.jpg"),
+    "slide1": load_image("Slide-1.png"),
+    "slide2": load_image("Slide-2.png"),
+    "wall": load_image("Main-Game-season-1.png"), 
+    "mom_run": load_image("mom-run-main.png"),
+    "demogorgon": load_image("season-1-game-faild-image.jpg"),
+}
 
-    def _load_sfx(self, filename):
-        path = os.path.join(ASSETS_DIR, filename)
-        if os.path.exists(path): return pygame.mixer.Sound(path)
-        return None
+# --- COORDINATES (Use F1 to find these) ---
+LETTER_COORDS = {
+    # Default placeholder values. Use F1 in game to find exact spots.
+    'G': (871, 103), 'E': (758, 108), 'I': (494, 204), 'H': (952, 84), 'T': (619, 313), 'R': (534, 297), 'U': (675, 309), 'N': (768, 190)
+}
 
-    def play_sfx(self, name):
-        if self.sounds.get(name): self.sounds[name].play()
+# --- Game States ---
+STATE_LOGO = "logo"
+STATE_MENU = "menu"
+STATE_SLIDE = "slide"
+STATE_DIALOGUE = "dialogue"
+STATE_GAME = "game"
+STATE_SUCCESS = "success"
+STATE_FAIL = "fail"
 
-loader = AssetLoader()
-loader.load_audio()
+slides = [
+    {"img": "slide1", "txt": "Will Byers has disappeared..."},
+    {"img": "slide2", "txt": "Joyce creates a way to communicate..."}
+]
 
-# --- 3. HELPER FUNCTIONS ---
-def load_high_score():
-    if os.path.exists(HIGHSCORE_FILE):
-        try:
-            with open(HIGHSCORE_FILE, "r") as f:
-                return int(f.read())
-        except: return 0
-    return 0
-
-def save_high_score(score):
-    with open(HIGHSCORE_FILE, "w") as f:
-        f.write(str(score))
-
-# --- NEW: CRT EFFECT GENERATOR ---
-def create_crt_scanlines():
-    """ Creates a transparent surface with horizontal scanlines """
-    scan_surf = pygame.Surface((GAME_WIDTH, GAME_HEIGHT), pygame.SRCALPHA)
-    # Darken every 2nd line
-    for y in range(0, GAME_HEIGHT, 2):
-        # (0, 0, 0, 50) -> Black with 50/255 transparency (subtle)
-        pygame.draw.line(scan_surf, (0, 0, 0, 40), (0, y), (GAME_WIDTH, y), 1)
-    
-    # Optional: Vignette (Dark corners)
-    # This creates a radial gradient look roughly
-    pygame.draw.rect(scan_surf, (0,0,0, 20), (0, 0, GAME_WIDTH, GAME_HEIGHT), 10) 
-    
-    return scan_surf
-
-scanline_surface = create_crt_scanlines()
-
-# --- 4. GAME CLASSES ---
-
-class Particle(pygame.sprite.Sprite):
-    def __init__(self, x, y, color):
-        super().__init__()
-        size = random.randint(3, 6)
-        self.image = pygame.Surface((size, size))
-        self.image.fill(color)
-        self.rect = self.image.get_rect(center=(x, y))
-        self.vx = random.uniform(-4, 4)
-        self.vy = random.uniform(-4, 4)
-        self.life = random.randint(20, 40)
-
-    def update(self):
-        self.rect.x += self.vx
-        self.rect.y += self.vy
-        self.life -= 1
-        if self.life <= 0: self.kill()
-
-class FloatingText(pygame.sprite.Sprite):
-    def __init__(self, x, y, text, color):
-        super().__init__()
-        self.image = FONT_MSG.render(text, True, color)
-        self.rect = self.image.get_rect(center=(x, y))
-        self.timer = 90
-    def update(self):
-        self.rect.y -= 0.5
-        self.timer -= 1
-        if self.timer <= 0: self.kill()
-
-class Player(pygame.sprite.Sprite):
+class Game:
     def __init__(self):
-        super().__init__()
-        self.image = loader.get_image("player.png", (50, 60), (0, 191, 255), "EL")
-        self.rect = self.image.get_rect(midbottom=(GAME_WIDTH // 2, GAME_HEIGHT - 40))
-        self.speed = 6
-        self.health = 3
-        self.energy = 0
-        self.vel_y = 0
-        self.jump_power = -15
-        self.gravity = 0.8
-        self.on_ground = True
+        self.state = STATE_LOGO
+        
+        # Fade & Timer Variables
+        self.start_time = time.time()
+        self.fade_alpha = 255  # Start fully black
+        self.fade_mode = "IN"  # IN (Dark->Clear), OUT (Clear->Dark), WAIT
+        
+        # Logic Variables
+        self.slide_index = 0
+        self.level = 1
+        self.target_msg = "RIGHT HERE" 
+        self.blink_sequence = []
+        self.blink_idx = 0
+        self.last_blink_time = 0
+        self.user_input = ""
+        self.wall_rect = pygame.Rect(0,0,0,0)
+        self.debug_mode = False
+
+    def reset_level(self):
+        self.user_input = ""
+        self.blink_idx = 0
+        self.blink_sequence = [c for c in self.target_msg if c != ' ']
+        self.last_blink_time = time.time()
+        self.game_phase = "blink" 
 
     def update(self):
-        keys = pygame.key.get_pressed()
-        if (keys[pygame.K_a] or keys[pygame.K_LEFT]) and self.rect.left > 0:
-            self.rect.x -= self.speed
-        if (keys[pygame.K_d] or keys[pygame.K_RIGHT]) and self.rect.right < GAME_WIDTH:
-            self.rect.x += self.speed
-
-        self.vel_y += self.gravity
-        self.rect.y += self.vel_y
-
-        if self.rect.bottom >= GAME_HEIGHT - 40:
-            self.rect.bottom = GAME_HEIGHT - 40
-            self.vel_y = 0
-            self.on_ground = True
-
-    def jump(self):
-        if self.on_ground:
-            self.vel_y = self.jump_power
-            self.on_ground = False
-
-    def shoot(self, target_pos):
-        loader.play_sfx('shoot')
-        return Bullet(self.rect.centerx, self.rect.centery - 20, target_pos)
-
-class Bullet(pygame.sprite.Sprite):
-    def __init__(self, start_x, start_y, target_pos):
-        super().__init__()
-        self.image = loader.get_image("bullet.png", (8, 8), GOLD, "o")
-        self.rect = self.image.get_rect(center=(start_x, start_y))
+        current_time = time.time()
         
-        dx = target_pos[0] - start_x
-        dy = target_pos[1] - start_y
-        angle = math.atan2(dy, dx)
-        speed = 15
-        self.vx = math.cos(angle) * speed
-        self.vy = math.sin(angle) * speed
-
-    def update(self):
-        self.rect.x += self.vx
-        self.rect.y += self.vy
-        if (self.rect.bottom < 0 or self.rect.top > GAME_HEIGHT or 
-            self.rect.right < 0 or self.rect.left > GAME_WIDTH):
-            self.kill()
-
-class Helicopter(pygame.sprite.Sprite):
-    def __init__(self, is_upside_down):
-        super().__init__()
-        self.direction = random.choice([-1, 1])
-        img = loader.get_image("chopper.png", (90, 40), (120, 120, 120), "HELI")
-        
-        if self.direction == -1: 
-            self.image = pygame.transform.flip(img, True, False)
-        else:
-            self.image = img 
-            
-        lanes = [80, 150, 220]
-        altitude = random.choice(lanes)
-        start_x = -100 if self.direction == 1 else GAME_WIDTH + 100
-        self.rect = self.image.get_rect(center=(start_x, altitude))
-        
-        self.speed = 2 * self.direction 
-        self.drop_timer = random.randint(100, 300) if is_upside_down else random.randint(150, 400)
-
-    def update(self):
-        self.rect.x += self.speed
-        if self.direction == 1 and self.rect.left > GAME_WIDTH: self.kill()
-        if self.direction == -1 and self.rect.right < 0: self.kill()
-        self.drop_timer -= 1
-        return self.drop_timer == 0
-
-class FallingObject(pygame.sprite.Sprite):
-    def __init__(self, x, y, is_upside_down):
-        super().__init__()
-        threat_chance = 0.7 if is_upside_down else 0.5
-        
-        if random.random() > threat_chance:
-            self.type = 'friend'
-            self.image = loader.get_image("trooper.png", (30, 40), NEON_GREEN, "PILOT")
-        else:
-            self.type = 'enemy'
-            img_name = "demobat.png" 
-            self.image = loader.get_image(img_name, (35, 35), NEON_RED, "BOMB")
-            
-        self.rect = self.image.get_rect(center=(x, y))
-        self.vel_y = 1.5 
-
-    def update(self):
-        self.vel_y += 0.05
-        if self.vel_y > 4: self.vel_y = 4
-        self.rect.y += self.vel_y
-        if self.rect.top > GAME_HEIGHT:
-            self.kill()
-            return "landed"
-        return "falling"
-
-# --- 5. HELPER FUNCTION ---
-def get_canvas_mouse_pos():
-    mx, my = pygame.mouse.get_pos()
-    window_w, window_h = screen.get_size()
-    scale_x = GAME_WIDTH / window_w
-    scale_y = GAME_HEIGHT / window_h
-    return mx * scale_x, my * scale_y
-
-# --- 6. MAIN GAME LOGIC (STATE MACHINE) ---
-
-def run_game():
-    global screen
-    
-    # Init Game Objects
-    player = Player()
-    player_grp = pygame.sprite.GroupSingle(player)
-    bullets = pygame.sprite.Group()
-    helicopters = pygame.sprite.Group()
-    falling_objects = pygame.sprite.Group()
-    particles = pygame.sprite.Group()
-    texts = pygame.sprite.Group()
-    
-    score = 0
-    high_score = load_high_score()
-    is_upside_down = False
-    
-    # Backgrounds
-    bg_normal = loader.get_image("bg_normal.png", (GAME_WIDTH, GAME_HEIGHT), SKY_BLUE, "BG")
-    bg_upside = loader.get_image("bg_upside.png", (GAME_WIDTH, GAME_HEIGHT), UPSIDE_DOWN_RED, "HELL")
-    current_bg = bg_normal
-
-    # Game States
-    STATE_MENU = 0
-    STATE_PLAYING = 1
-    STATE_PAUSED = 2
-    STATE_GAMEOVER = 3
-    
-    current_state = STATE_MENU
-    blink_timer = 0 # For blinking text
-
-    running = True
-    while running:
-        # --- EVENT HANDLING ---
+        # --- INPUT HANDLING ---
         for event in pygame.event.get():
-            if event.type == pygame.QUIT: running = False
-            elif event.type == pygame.VIDEORESIZE:
-                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
-            
-            elif event.type == pygame.KEYDOWN:
-                # MENU CONTROLS
-                if current_state == STATE_MENU:
-                    # Added Keypad Enter support
-                    if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
-                        loader.play_sfx('select')
-                        current_state = STATE_PLAYING
-                        score = 0
-                        player.health = 3
-                        player.energy = 0
-                        # Reset World State (Fixes bug where restarting keeps Upside Down mode)
-                        is_upside_down = False
-                        current_bg = bg_normal
-                        
-                        # Reset groups
-                        helicopters.empty()
-                        falling_objects.empty()
-                        bullets.empty()
-                        particles.empty()
-                        texts.empty()
-                        player.rect.midbottom = (GAME_WIDTH // 2, GAME_HEIGHT - 40)
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
 
-                # GAME CONTROLS
-                elif current_state == STATE_PLAYING:
-                    if event.key == pygame.K_p: # PAUSE
-                        current_state = STATE_PAUSED
-                    
-                    if (event.key == pygame.K_SPACE or event.key == pygame.K_w):
-                        player.jump()
-                    
-                    if event.key == pygame.K_z:
-                        if player.energy >= 100:
-                            loader.play_sfx('ultimate')
-                            for obj in falling_objects:
-                                if obj.type == 'enemy':
-                                    score += 20
-                                    for _ in range(10):
-                                        particles.add(Particle(obj.rect.centerx, obj.rect.centery, NEON_RED))
-                                    obj.kill()
-                            texts.add(FloatingText(player.rect.centerx, player.rect.top, "PSYCHIC BLAST!", NEON_BLUE))
-                            player.energy = 0
+            # Debug Mode Toggle
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
+                self.debug_mode = not self.debug_mode
+                print(f"Debug Mode: {self.debug_mode}")
+
+            # Mouse Interactions
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.debug_mode and self.state in [STATE_GAME, STATE_DIALOGUE]:
+                    mx, my = pygame.mouse.get_pos()
+                    print(f"COORD: ({mx - self.wall_rect.x}, {my - self.wall_rect.y})")
+
+                if self.state == STATE_MENU and self.fade_mode == "IDLE":
+                    # Start Slideshow
+                    self.state = STATE_SLIDE
+                    self.slide_index = 0
+                    self.fade_alpha = 255
+                    self.fade_mode = "IN"
+
+                elif self.state == STATE_SLIDE and self.fade_mode == "IDLE":
+                    # Next Slide
+                    self.fade_mode = "OUT"
+
+                elif self.state == STATE_DIALOGUE:
+                    # Start Game Blink
+                    self.state = STATE_GAME
+                    self.reset_level()
+
+                elif self.state in [STATE_SUCCESS, STATE_FAIL]:
+                    self.state = STATE_MENU
+                    self.fade_alpha = 255
+                    self.fade_mode = "IN"
+
+            # Typing Input
+            if self.state == STATE_GAME and self.game_phase == "input" and event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    clean_inp = self.user_input.replace(" ", "").upper()
+                    clean_tgt = self.target_msg.replace(" ", "").upper()
+                    if clean_inp == clean_tgt:
+                        if self.level == 1:
+                            self.level = 2
+                            self.target_msg = "RUN"
+                            self.reset_level()
+                        else:
+                            self.state = STATE_SUCCESS
+                    else:
+                        self.state = STATE_FAIL
+                elif event.key == pygame.K_BACKSPACE:
+                    self.user_input = self.user_input[:-1]
+                else:
+                    if event.unicode.isalnum() or event.unicode == " ":
+                        self.user_input += event.unicode.upper()
+
+        # --- LOGIC & ANIMATIONS ---
+        
+        # 1. LOGO FADE SEQUENCE
+        if self.state == STATE_LOGO:
+            fade_speed = 4
+            if self.fade_mode == "IN":
+                self.fade_alpha -= fade_speed
+                if self.fade_alpha <= 0:
+                    self.fade_alpha = 0
+                    self.fade_mode = "WAIT"
+                    self.start_time = current_time
+            elif self.fade_mode == "WAIT":
+                if current_time - self.start_time > 2.0: # Wait 2 seconds
+                    self.fade_mode = "OUT"
+            elif self.fade_mode == "OUT":
+                self.fade_alpha += fade_speed
+                if self.fade_alpha >= 255:
+                    self.state = STATE_MENU
+                    self.fade_mode = "IN" # Start Menu with Fade In
+
+        # 2. MENU FADE IN
+        elif self.state == STATE_MENU:
+            if self.fade_mode == "IN":
+                self.fade_alpha -= 5
+                if self.fade_alpha <= 0:
+                    self.fade_alpha = 0
+                    self.fade_mode = "IDLE"
+
+        # 3. SLIDE FADE SEQUENCE
+        elif self.state == STATE_SLIDE:
+            speed = 5
+            if self.fade_mode == "IN":
+                self.fade_alpha -= speed
+                if self.fade_alpha <= 0:
+                    self.fade_alpha = 0
+                    self.fade_mode = "IDLE"
+            elif self.fade_mode == "OUT":
+                self.fade_alpha += speed
+                if self.fade_alpha >= 255:
+                    self.slide_index += 1
+                    if self.slide_index >= len(slides):
+                        self.state = STATE_DIALOGUE
+                    else:
+                        self.fade_mode = "IN"
+
+        # 4. GAME BLINKING
+        if self.state == STATE_GAME and self.game_phase == "blink":
+            if self.blink_idx < len(self.blink_sequence):
+                if current_time - self.last_blink_time > 1.2:
+                    self.blink_idx += 1
+                    self.last_blink_time = current_time
+            else:
+                self.game_phase = "input"
+
+    def draw(self):
+        screen.fill(BLACK)
+
+        # --- DRAW VISUALS ---
+        if self.state == STATE_LOGO:
+            draw_image_fit(screen, assets["logo"])
+
+        elif self.state == STATE_MENU:
+            draw_image_fit(screen, assets["menu"])
+            if self.fade_mode == "IDLE":
+                txt = font_title.render("CLICK TO START", True, RED)
+                bg = txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)).inflate(20,10)
+                pygame.draw.rect(screen, BLACK, bg)
+                screen.blit(txt, txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)))
+
+        elif self.state == STATE_SLIDE:
+            if self.slide_index < len(slides):
+                data = slides[self.slide_index]
+                draw_image_fit(screen, assets[data["img"]])
+                s = pygame.Surface((SCREEN_WIDTH, 120))
+                s.set_alpha(200); s.fill(BLACK)
+                screen.blit(s, (0, SCREEN_HEIGHT - 120))
+                txt = font_subtitle.render(data["txt"], True, WHITE)
+                screen.blit(txt, (50, SCREEN_HEIGHT - 80))
+
+        # --- DIALOGUE & GAME (They share the Wall Image) ---
+        elif self.state in [STATE_DIALOGUE, STATE_GAME]:
+            self.wall_rect = draw_image_fit(screen, assets["wall"])
+
+            # DIALOGUE OVERLAY (Text at bottom)
+            if self.state == STATE_DIALOGUE:
+                # Black bar at bottom
+                pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT-120, SCREEN_WIDTH, 120))
                 
-                # PAUSE CONTROLS
-                elif current_state == STATE_PAUSED:
-                    if event.key == pygame.K_p: # UNPAUSE
-                        current_state = STATE_PLAYING
+                name = font_title.render("MOM:", True, RED)
+                msg = font_subtitle.render('"Where are you?"', True, WHITE)
+                hint = font_debug.render("(Click to start connection...)", True, GRAY)
                 
-                # GAME OVER CONTROLS
-                elif current_state == STATE_GAMEOVER:
-                    # Allow R or ENTER to retry
-                    if event.key == pygame.K_r or event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER: 
-                        current_state = STATE_MENU
+                screen.blit(name, (50, SCREEN_HEIGHT - 100))
+                screen.blit(msg, (170, SCREEN_HEIGHT - 95))
+                screen.blit(hint, (50, SCREEN_HEIGHT - 40))
 
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if current_state == STATE_PLAYING and event.button == 1:
-                    target = get_canvas_mouse_pos()
-                    bullets.add(player.shoot(target))
+            # GAME LOGIC (Lights & Input)
+            elif self.state == STATE_GAME:
+                # BLINKING
+                if self.game_phase == "blink":
+                    if self.blink_idx < len(self.blink_sequence):
+                        letter = self.blink_sequence[self.blink_idx]
+                        if (time.time() - self.last_blink_time < 0.8) and (letter in LETTER_COORDS):
+                            lx, ly = LETTER_COORDS[letter]
+                            glow = pygame.Surface((60, 60), pygame.SRCALPHA)
+                            pygame.draw.circle(glow, (237, 195, 13, 150), (30, 30), 8)
+                            pygame.draw.circle(glow, (237, 195, 13), (30, 30), 4)
+                            screen.blit(glow, (self.wall_rect.x + lx - 30, self.wall_rect.y + ly - 30))
+                
+                # INPUT
+                elif self.game_phase == "input":
+                    pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT-80, SCREEN_WIDTH, 80))
+                    prompt = font_subtitle.render("TYPE: " + self.user_input + "_", True, RED)
+                    screen.blit(prompt, (50, SCREEN_HEIGHT - 55))
+                
+                if self.debug_mode:
+                    d = font_debug.render("DEBUG: Click letters for coords", True, CYAN)
+                    screen.blit(d, (10, 10))
 
-        # --- UPDATE & DRAW LOGIC ---
-        
-        canvas.fill(BLACK) # Clear frame
+        # SUCCESS / FAIL
+        elif self.state == STATE_SUCCESS:
+            draw_image_fit(screen, assets["mom_run"])
+            txt = font_title.render("SAFE!", True, YELLOW)
+            screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, 50))
 
-        if current_state == STATE_MENU:
-            # Draw Menu Background
-            canvas.blit(bg_normal, (0,0))
-            
-            # Title
-            title_txt = FONT_BIG.render("STRANGER THINGS", True, NEON_RED)
-            sub_title = FONT_HUD.render("HAWKINS DEFENDER", True, WHITE)
-            
-            # Glowing Border for Title
-            pygame.draw.rect(canvas, NEON_RED, title_txt.get_rect(center=(GAME_WIDTH//2, 200)).inflate(20, 20), 2)
-            
-            canvas.blit(title_txt, title_txt.get_rect(center=(GAME_WIDTH//2, 200)))
-            canvas.blit(sub_title, sub_title.get_rect(center=(GAME_WIDTH//2, 250)))
+        elif self.state == STATE_FAIL:
+            draw_image_fit(screen, assets["demogorgon"])
+            txt = font_title.render("GAME OVER", True, RED)
+            screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, SCREEN_HEIGHT - 100))
 
-            # Blinking Start Text
-            blink_timer += 1
-            if blink_timer % 60 < 30: # Blink every half second
-                start_txt = FONT_MENU.render("PRESS ENTER TO START", True, GOLD)
-                canvas.blit(start_txt, start_txt.get_rect(center=(GAME_WIDTH//2, 450)))
-            
-            controls_txt = FONT_MSG.render("WASD/Arrows to Move | Mouse to Shoot | P to Pause", True, GRAY)
-            canvas.blit(controls_txt, controls_txt.get_rect(center=(GAME_WIDTH//2, 550)))
-
-        elif current_state == STATE_PLAYING:
-            # Update Logic
-            
-            # Difficulty & Bg
-            if score >= 500 and not is_upside_down:
-                is_upside_down = True
-                texts.add(FloatingText(GAME_WIDTH//2, GAME_HEIGHT//2, "ENTERING UPSIDE DOWN!", NEON_RED))
-            current_bg = bg_upside if is_upside_down else bg_normal
-
-            # Spawning
-            if random.randint(0, 180) == 0: # Increased spawn rate slightly
-                helicopters.add(Helicopter(is_upside_down))
-
-            player_grp.update()
-            bullets.update()
-            texts.update()
-            particles.update()
-            
-            for heli in helicopters:
-                if heli.update():
-                    falling_objects.add(FallingObject(heli.rect.centerx, heli.rect.centery, is_upside_down))
-
-            for obj in falling_objects:
-                status = obj.update()
-                if status == "landed":
-                    if obj.type == 'friend':
-                        player.health += 1 
-                        score += 200
-                        texts.add(FloatingText(obj.rect.centerx, GAME_HEIGHT-60, "SAVED! +1 LIFE", NEON_GREEN))
-                        loader.play_sfx('rescue')
-                    elif obj.type == 'enemy':
-                        player.health -= 1
-                        texts.add(FloatingText(obj.rect.centerx, GAME_HEIGHT-60, "DAMAGE! -1 LIFE", NEON_RED))
-                        loader.play_sfx('hit')
-                        if player.health <= 0:
-                            current_state = STATE_GAMEOVER
-                            if score > high_score:
-                                save_high_score(score)
-
-            # Collisions
-            hits = pygame.sprite.groupcollide(helicopters, bullets, True, True)
-            for hit in hits:
-                score += 50
-                player.energy = min(100, player.energy + 10)
-                loader.play_sfx('hit')
-                texts.add(FloatingText(hit.rect.centerx, hit.rect.centery, "+50", WHITE))
-                for _ in range(15):
-                    particles.add(Particle(hit.rect.centerx, hit.rect.centery, GRAY))
-
-            hits = pygame.sprite.groupcollide(falling_objects, bullets, True, True)
-            for obj in hits:
-                if obj.type == 'enemy':
-                    score += 20
-                    player.energy = min(100, player.energy + 5)
-                    loader.play_sfx('hit')
-                    texts.add(FloatingText(obj.rect.centerx, obj.rect.centery, "DESTROYED!", GOLD))
-                    for _ in range(10):
-                        particles.add(Particle(obj.rect.centerx, obj.rect.centery, NEON_RED))
-                elif obj.type == 'friend':
-                    score -= 50
-                    texts.add(FloatingText(obj.rect.centerx, obj.rect.centery, "FRIENDLY FIRE!", NEON_RED))
-
-            # DRAW GAME
-            canvas.blit(current_bg, (0, 0))
-            pygame.draw.rect(canvas, (40, 40, 40), (0, GAME_HEIGHT-40, GAME_WIDTH, 40)) # Floor
-            
-            player_grp.draw(canvas)
-            helicopters.draw(canvas)
-            falling_objects.draw(canvas)
-            bullets.draw(canvas)
-            particles.draw(canvas)
-            texts.draw(canvas)
-
-            # HUD
-            score_surf = FONT_HUD.render(f"SCORE: {score}", True, WHITE)
-            canvas.blit(score_surf, (20, 20))
-            
-            # Energy Bar
-            pygame.draw.rect(canvas, BLACK, (GAME_WIDTH - 150, 60, 100, 15))
-            if player.energy > 0:
-                pygame.draw.rect(canvas, NEON_BLUE, (GAME_WIDTH - 150, 60, player.energy, 15))
-            pygame.draw.rect(canvas, WHITE, (GAME_WIDTH - 150, 60, 100, 15), 2)
-            if player.energy >= 100:
-                ready_txt = FONT_MSG.render("PRESS 'Z'!", True, NEON_BLUE)
-                canvas.blit(ready_txt, (GAME_WIDTH - 150, 80))
-            
-            # Lives
-            lives_txt = FONT_HUD.render(f"LIVES: {player.health}", True, NEON_GREEN if player.health > 1 else NEON_RED)
-            canvas.blit(lives_txt, (GAME_WIDTH - 150, 20))
-
-            # Crosshair (on canvas coordinate)
-            cmx, cmy = get_canvas_mouse_pos()
-            pygame.draw.circle(canvas, NEON_RED, (int(cmx), int(cmy)), 5, 1)
-
-        elif current_state == STATE_PAUSED:
-            # Draw game frozen in background
-            canvas.blit(current_bg, (0,0))
-            player_grp.draw(canvas)
-            
-            # Pause Overlay
-            overlay = pygame.Surface((GAME_WIDTH, GAME_HEIGHT), pygame.SRCALPHA)
-            overlay.fill((0,0,0, 150))
-            canvas.blit(overlay, (0,0))
-            
-            pause_txt = FONT_BIG.render("PAUSED", True, WHITE)
-            sub_pause = FONT_HUD.render("Press 'P' to Resume", True, GOLD)
-            canvas.blit(pause_txt, pause_txt.get_rect(center=(GAME_WIDTH//2, GAME_HEIGHT//2 - 20)))
-            canvas.blit(sub_pause, sub_pause.get_rect(center=(GAME_WIDTH//2, GAME_HEIGHT//2 + 40)))
-
-        elif current_state == STATE_GAMEOVER:
-            overlay = pygame.Surface((GAME_WIDTH, GAME_HEIGHT), pygame.SRCALPHA)
-            overlay.fill((0,0,0, 180))
-            canvas.blit(overlay, (0,0))
-            
-            t1 = FONT_BIG.render("GAME OVER", True, NEON_RED)
-            t2 = FONT_HUD.render(f"Final Score: {score}", True, WHITE)
-            t3 = FONT_HUD.render("Press 'R' or 'ENTER' to Return to Menu", True, GOLD)
-            
-            canvas.blit(t1, t1.get_rect(center=(GAME_WIDTH//2, GAME_HEIGHT//2 - 40)))
-            canvas.blit(t2, t2.get_rect(center=(GAME_WIDTH//2, GAME_HEIGHT//2 + 20)))
-            canvas.blit(t3, t3.get_rect(center=(GAME_WIDTH//2, GAME_HEIGHT//2 + 60)))
-
-        # --- FINAL RENDER & POST-PROCESSING ---
-        
-        # 1. Apply Scanlines (CRT Effect)
-        canvas.blit(scanline_surface, (0,0))
-        
-        # 2. Scale to User Screen
-        scaled = pygame.transform.scale(canvas, screen.get_size())
-        screen.blit(scaled, (0,0))
+        # --- GLOBAL FADE OVERLAY ---
+        # Apply fade effect for Logo, Menu, and Slides
+        if self.state in [STATE_LOGO, STATE_MENU, STATE_SLIDE]:
+            if self.fade_alpha > 0:
+                overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+                overlay.set_alpha(self.fade_alpha)
+                overlay.fill(BLACK)
+                screen.blit(overlay, (0, 0))
 
         pygame.display.flip()
         clock.tick(60)
 
+# --- Entry Point ---
 if __name__ == "__main__":
-    run_game()
-    pygame.quit()
-    sys.exit()
+    game = Game()
+    while True:
+        game.update()
+        game.draw()

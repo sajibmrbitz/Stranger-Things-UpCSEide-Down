@@ -1,0 +1,1 @@
+screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, 50))
