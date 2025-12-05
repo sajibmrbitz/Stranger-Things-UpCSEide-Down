@@ -28,6 +28,7 @@ GRAY = (50, 50, 50)
 
 # Fonts
 font_title = pygame.font.SysFont("Arial", 40, bold=True)
+font_title1 = pygame.font.SysFont("Courier New", 20, bold=True)
 font_subtitle = pygame.font.SysFont("Courier New", 28, bold=True)
 font_debug = pygame.font.SysFont("Arial", 16)
 
@@ -63,8 +64,23 @@ def load_image(name):
 assets = {
     "logo": load_image("Stranger_Things_logo.png"),
     "menu": load_image("starting-image.jpg"),
-    "slide1": load_image("Slide-1.png"),
-    "slide2": load_image("Slide-2.png"),
+    "slide1": load_image("Slide-1.jpg"),
+    "slide2": load_image("Slide-2.jpg"),
+    "slide2.5": load_image("Slide-2.5.jpg"),
+    "slide3": load_image("Slide-3.png"),
+    "slide4": load_image("Slide-4.png"),
+    "slide5": load_image("Slide-5.jpg"),
+    "slide6": load_image("Slide-6.jpg"),
+    "slide7": load_image("Slide-7.jpg"),
+    "slide8": load_image("Slide-8.jpg"),
+    "slide9": load_image("Slide-9.jpg"),
+    "slide10": load_image("Slide-10.jpg"),
+    "slide11": load_image("Slide-11.jpg"),
+    "slide12": load_image("Slide-12.jpg"),
+    "slide-x": load_image("Black.jpg"),
+    "slide13": load_image("Slide-13.jpg"),
+    "slide14": load_image("Slide-14.jpg"),
+    "slide15": load_image("Slide-15.jpg"),
     "wall": load_image("Main-Game-season-1.png"), 
     "mom_run": load_image("mom-run-main.png"),
     "demogorgon": load_image("season-1-game-faild-image.jpg"),
@@ -84,12 +100,30 @@ STATE_DIALOGUE = "dialogue"
 STATE_GAME = "game"
 STATE_SUCCESS = "success"
 STATE_FAIL = "fail"
+STATE_ENDING = "ending"
 
 slides = [
-    {"img": "slide1", "txt": "Will Byers has disappeared..."},
-    {"img": "slide2", "txt": "Joyce creates a way to communicate..."}
+    {"img": "slide1", "txt": "" , "pos": "bottom"},
+    {"img": "slide2", "txt": ["Will,Mike,Lucas,and Dustin playing Dungeons & Dragons."] , "pos": "bottom"},
+    {"img": "slide2.5", "txt": ["Time to head home..."], "pos": "bottom"},
+    {"img": "slide3", "txt": ["Every one went home except Will.", "Now the search begins..."], "pos": "bottom"},
+    {"img": "slide4", "txt": ["They couldn't find Will anywhere.", "But they came across a strange girl, named Eleven."], "pos": "bottom"},
+    {"img": "slide5", "txt": ["Everyone left hope to find Will except his mom, Joyce.", "Soon enough, she discovered will is alive and communicating through lights."], "pos": "bottom"},
 ]
 
+ending_slides = [
+    {"img": "slide6", "txt": ["Meanwhile, Mike and Dustin got in to a fight." , "El came into the scene to save Mike"], "pos": "bottom"},
+    {"img": "slide7", "txt": "", "pos": "bottom"},
+    {"img": "slide-x", "txt": ["Now that El blew up her cover.", "Now we all know that 'EL ISN'T AN ORDINARY GIRL.'"], "pos": "center"},
+    {"img": "slide8", "txt": ["With Eleven's help, they found Will", "in a parallel dimension called the Upside Down."], "pos": "bottom"},
+    {"img": "slide9", "txt": ["Hopper and Joyce went to rescue Will."], "pos": "bottom"},
+    {"img": "slide10", "txt": "", "pos": "bottom"},
+    {"img": "slide11", "txt": ["Will was saved that night."], "pos": "bottom"},
+    {"img": "slide12", "txt": "", "pos": "bottom"},
+    {"img": "slide13", "txt": ["They are enjoying their time together again."], "pos": "bottom"},
+    {"img": "slide14", "txt": ["Everything seems normal now..."], "pos": "bottom"},
+    {"img": "slide15", "txt": ["NOT REALLY..."], "pos": "bottom"},
+]
 class Game:
     def __init__(self):
         self.state = STATE_LOGO
@@ -153,10 +187,12 @@ class Game:
                     self.reset_level()
 
                 elif self.state in [STATE_SUCCESS, STATE_FAIL]:
-                    self.state = STATE_MENU
+                    self.state = STATE_ENDING  # এন্ডিং স্লাইড শুরু হবে
+                    self.slide_index = 0
                     self.fade_alpha = 255
                     self.fade_mode = "IN"
-
+                elif self.state == STATE_ENDING and self.fade_mode == "IDLE":
+                     self.fade_mode = "OUT"
             # Typing Input
             if self.state == STATE_GAME and self.game_phase == "input" and event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
@@ -206,6 +242,23 @@ class Game:
                     self.fade_mode = "IDLE"
 
         # 3. SLIDE FADE SEQUENCE
+        elif self.state == STATE_ENDING:
+                    speed = 5
+                    if self.fade_mode == "IN":
+                        self.fade_alpha -= speed
+                        if self.fade_alpha <= 0:
+                            self.fade_alpha = 0
+                            self.fade_mode = "IDLE"
+                    elif self.fade_mode == "OUT":
+                        self.fade_alpha += speed
+                        if self.fade_alpha >= 255:
+                            self.slide_index += 1
+                            # যদি সব স্লাইড শেষ হয়ে যায়, তবে মেনুতে ফিরবে
+                            if self.slide_index >= len(ending_slides):
+                                self.state = STATE_MENU
+                                self.fade_mode = "IN"
+                            else:
+                                self.fade_mode = "IN"
         elif self.state == STATE_SLIDE:
             speed = 5
             if self.fade_mode == "IN":
@@ -241,21 +294,55 @@ class Game:
         elif self.state == STATE_MENU:
             draw_image_fit(screen, assets["menu"])
             if self.fade_mode == "IDLE":
-                txt = font_title.render("CLICK TO START", True, RED)
-                bg = txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)).inflate(20,10)
-                pygame.draw.rect(screen, BLACK, bg)
-                screen.blit(txt, txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)))
+                # Blink Logic:
+                # time.time() * 2 এর মানে হলো স্পিড কন্ট্রোল করা।
+                # % 2 == 0 দিয়ে আমরা অন/অফ লজিক তৈরি করছি।
+                if int(time.time() * 2) % 2 == 0:
+                    txt = font_title1.render("CLICK TO START", True, WHITE)
+                    bg = txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)).inflate(20,10)
+                    # pygame.draw.rect(screen, BLACK, bg)
+                    screen.blit(txt, txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)))
 
-        elif self.state == STATE_SLIDE:
-            if self.slide_index < len(slides):
-                data = slides[self.slide_index]
+        elif self.state in [STATE_SLIDE, STATE_ENDING]:
+            # কোন স্লাইড লিস্ট ব্যবহার হবে তা ঠিক করা
+            current_list = slides if self.state == STATE_SLIDE else ending_slides
+            
+            if self.slide_index < len(current_list):
+                data = current_list[self.slide_index]
                 draw_image_fit(screen, assets[data["img"]])
-                s = pygame.Surface((SCREEN_WIDTH, 120))
-                s.set_alpha(200); s.fill(BLACK)
-                screen.blit(s, (0, SCREEN_HEIGHT - 120))
-                txt = font_subtitle.render(data["txt"], True, WHITE)
-                screen.blit(txt, (50, SCREEN_HEIGHT - 80))
 
+                # --- MULTI-LINE TEXT LOGIC ---
+                lines = data["txt"] # এটি এখন একটি লিস্ট
+                position = data.get("pos", "bottom") # ডিফল্ট ভ্যালু 'bottom'
+
+                # ফন্ট হাইট বের করা
+                line_height = font_subtitle.get_height() + 5
+                total_text_height = len(lines) * line_height
+
+                # Y পজিশন ঠিক করা (মাঝখানে নাকি নিচে)
+                start_y = 0
+                if position == "center":
+                    start_y = (SCREEN_HEIGHT - total_text_height) // 2
+                else: # bottom
+                    # নিচে হলে কালো ব্যাকগ্রাউন্ড দিন
+                    s = pygame.Surface((SCREEN_WIDTH, total_text_height + 40))
+                    s.set_alpha(200); s.fill(BLACK)
+                    screen.blit(s, (0, SCREEN_HEIGHT - (total_text_height + 40)))
+                    start_y = SCREEN_HEIGHT - (total_text_height + 20)
+
+                # লুপ চালিয়ে লাইনগুলো আঁকা
+                for i, line in enumerate(lines):
+                    txt_surf = font_subtitle.render(line, True, WHITE)
+                    # সবসময় হরাইজন্টালি (X-axis) মাঝখানে থাকবে
+                    text_x = (SCREEN_WIDTH - txt_surf.get_width()) // 2
+                    text_y = start_y + (i * line_height)
+                    
+                    # সেন্টারে থাকলে টেক্সটের নিচে একটু শ্যাডো দিলে পড়া সহজ হয়
+                    if position == "center":
+                        shadow = font_subtitle.render(line, True, BLACK)
+                        screen.blit(shadow, (text_x + 2, text_y + 2))
+
+                    screen.blit(txt_surf, (text_x, text_y))
         # --- DIALOGUE & GAME (They share the Wall Image) ---
         elif self.state in [STATE_DIALOGUE, STATE_GAME]:
             self.wall_rect = draw_image_fit(screen, assets["wall"])
@@ -265,8 +352,8 @@ class Game:
                 # Black bar at bottom
                 pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT-120, SCREEN_WIDTH, 120))
                 
-                name = font_title.render("MOM:", True, RED)
-                msg = font_subtitle.render('"Where are you?"', True, WHITE)
+                name = font_title.render("Joyce:", True, RED)
+                msg = font_subtitle.render('"Will, Where are you?"', True, WHITE)
                 hint = font_debug.render("(Click to start connection...)", True, GRAY)
                 
                 screen.blit(name, (50, SCREEN_HEIGHT - 100))
@@ -306,10 +393,10 @@ class Game:
             draw_image_fit(screen, assets["demogorgon"])
             txt = font_title.render("GAME OVER", True, RED)
             screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, SCREEN_HEIGHT - 100))
-
+            self.state = STATE_GAME  # Restart game immediately for simplicity
         # --- GLOBAL FADE OVERLAY ---
         # Apply fade effect for Logo, Menu, and Slides
-        if self.state in [STATE_LOGO, STATE_MENU, STATE_SLIDE]:
+        if self.state in [STATE_LOGO, STATE_MENU, STATE_SLIDE, STATE_ENDING]:
             if self.fade_alpha > 0:
                 overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
                 overlay.set_alpha(self.fade_alpha)

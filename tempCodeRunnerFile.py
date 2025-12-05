@@ -1,1 +1,1 @@
-screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, 50))
+screen.blit(txt, txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)))
