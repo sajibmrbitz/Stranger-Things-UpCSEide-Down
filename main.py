@@ -2,6 +2,7 @@ import pygame
 import sys
 import time
 import os
+import cv2  # OpenCV লাইব্রেরি ইমপোর্ট
 
 # --- Initialization ---
 pygame.init()
@@ -83,12 +84,11 @@ assets = {
     "slide15": load_image("Slide-15.jpg"),
     "wall": load_image("Main-Game-season-1.png"), 
     "mom_run": load_image("mom-run-main.png"),
-    "demogorgon": load_image("season-1-game-faild-image.jpg"),
+    "demogorgon": load_image("game-faild-image.jpg"),
 }
 
 # --- COORDINATES (Use F1 to find these) ---
 LETTER_COORDS = {
-    # Default placeholder values. Use F1 in game to find exact spots.
     'G': (871, 103), 'E': (758, 108), 'I': (494, 204), 'H': (952, 84), 'T': (619, 313), 'R': (534, 297), 'U': (675, 309), 'N': (768, 190)
 }
 
@@ -101,6 +101,7 @@ STATE_GAME = "game"
 STATE_SUCCESS = "success"
 STATE_FAIL = "fail"
 STATE_ENDING = "ending"
+STATE_VIDEO = "video"
 
 slides = [
     {"img": "slide1", "txt": "" , "pos": "bottom"},
@@ -112,6 +113,7 @@ slides = [
 ]
 
 ending_slides = [
+    {"img": "slide-x", "txt": ["Click to continue..."], "pos": "center"},
     {"img": "slide6", "txt": ["Meanwhile, Mike and Dustin got in to a fight." , "El came into the scene to save Mike"], "pos": "bottom"},
     {"img": "slide7", "txt": "", "pos": "bottom"},
     {"img": "slide-x", "txt": ["Now that El blew up her cover.", "Now we all know that 'EL ISN'T AN ORDINARY GIRL.'"], "pos": "center"},
@@ -124,16 +126,15 @@ ending_slides = [
     {"img": "slide14", "txt": ["Everything seems normal now..."], "pos": "bottom"},
     {"img": "slide15", "txt": ["NOT REALLY..."], "pos": "bottom"},
 ]
+
 class Game:
     def __init__(self):
         self.state = STATE_LOGO
         
-        # Fade & Timer Variables
         self.start_time = time.time()
-        self.fade_alpha = 255  # Start fully black
-        self.fade_mode = "IN"  # IN (Dark->Clear), OUT (Clear->Dark), WAIT
+        self.fade_alpha = 255 
+        self.fade_mode = "IN" 
         
-        # Logic Variables
         self.slide_index = 0
         self.level = 1
         self.target_msg = "RIGHT HERE" 
@@ -143,6 +144,29 @@ class Game:
         self.user_input = ""
         self.wall_rect = pygame.Rect(0,0,0,0)
         self.debug_mode = False
+        self.current_fps = 60 # ডিফল্ট গেম স্পিড
+        
+        # VIDEO VARIABLES
+        self.cap = None             
+        self.video_frame = None     
+        self.video_playing = False
+
+        # --- BACKGROUND MUSIC START ---
+        self.play_bg_music()
+
+    def play_bg_music(self):
+        """Helper function to play background music loop."""
+        bg_path = os.path.join(ASSET_PATH, "strangerthings_theme.mp3")
+        if os.path.exists(bg_path):
+            try:
+                pygame.mixer.music.load(bg_path)
+                pygame.mixer.music.play(-1) # Loop indefinitely
+                pygame.mixer.music.set_volume(0.5) # Volume set to 50%
+                print("BG Music playing...")
+            except Exception as e:
+                print(f"[BG MUSIC ERROR] {e}")
+        else:
+            print(f"[BG MUSIC MISSING] File should be at: {bg_path}")
 
     def reset_level(self):
         self.user_input = ""
@@ -150,6 +174,38 @@ class Game:
         self.blink_sequence = [c for c in self.target_msg if c != ' ']
         self.last_blink_time = time.time()
         self.game_phase = "blink" 
+
+    # NEW FUNCTION: ভিডিও এবং অডিও শুরু করার জন্য (অটোমেটিক)
+    def start_ending_sequence(self):
+        self.state = STATE_VIDEO
+        video_path = os.path.join(ASSET_PATH, "After-game.mp4")
+        
+        # 1. Video Load
+        self.cap = cv2.VideoCapture(video_path)
+        
+        # 2. Get Video FPS (Sync করার জন্য)
+        try:
+            fps = self.cap.get(cv2.CAP_PROP_FPS)
+            if fps > 0:
+                self.current_fps = int(fps) 
+            else:
+                self.current_fps = 30 
+        except:
+            self.current_fps = 30
+            
+        self.video_playing = True
+        
+        # 3. Audio Start (This replaces the BG music)
+        audio_path = os.path.join(ASSET_PATH, "After-game.mp3")
+        if os.path.exists(audio_path):
+            try:
+                pygame.mixer.music.load(audio_path)
+                pygame.mixer.music.play()
+                print("Video Audio playing...")
+            except Exception as e:
+                print(f"[AUDIO ERROR] {e}")
+        else:
+            print(f"[AUDIO MISSING] File should be at: {audio_path}")
 
     def update(self):
         current_time = time.time()
@@ -159,7 +215,6 @@ class Game:
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
 
-            # Debug Mode Toggle
             if event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
                 self.debug_mode = not self.debug_mode
                 print(f"Debug Mode: {self.debug_mode}")
@@ -171,40 +226,48 @@ class Game:
                     print(f"COORD: ({mx - self.wall_rect.x}, {my - self.wall_rect.y})")
 
                 if self.state == STATE_MENU and self.fade_mode == "IDLE":
-                    # Start Slideshow
                     self.state = STATE_SLIDE
                     self.slide_index = 0
                     self.fade_alpha = 255
                     self.fade_mode = "IN"
 
                 elif self.state == STATE_SLIDE and self.fade_mode == "IDLE":
-                    # Next Slide
                     self.fade_mode = "OUT"
 
                 elif self.state == STATE_DIALOGUE:
-                    # Start Game Blink
                     self.state = STATE_GAME
                     self.reset_level()
 
-                elif self.state in [STATE_SUCCESS, STATE_FAIL]:
-                    self.state = STATE_ENDING  # এন্ডিং স্লাইড শুরু হবে
-                    self.slide_index = 0
-                    self.fade_alpha = 255
-                    self.fade_mode = "IN"
+                elif self.state == STATE_FAIL:
+                    self.state = STATE_GAME
+                    self.level = 1
+                    self.target_msg = "RIGHT HERE" 
+                    self.reset_level()
+
                 elif self.state == STATE_ENDING and self.fade_mode == "IDLE":
                      self.fade_mode = "OUT"
+                
+                # Skip Video if clicked
+                elif self.state == STATE_VIDEO:
+                     if self.cap: self.cap.release()
+                     
+                     # Restart BG Music instead of just stopping
+                     self.play_bg_music()
+                     
+                     self.current_fps = 60 # Reset FPS
+                     self.state = STATE_ENDING
+                     self.slide_index = 0
+                     self.fade_alpha = 255
+                     self.fade_mode = "IN"
+
             # Typing Input
             if self.state == STATE_GAME and self.game_phase == "input" and event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
                     clean_inp = self.user_input.replace(" ", "").upper()
                     clean_tgt = self.target_msg.replace(" ", "").upper()
                     if clean_inp == clean_tgt:
-                        if self.level == 1:
-                            self.level = 2
-                            self.target_msg = "RUN"
-                            self.reset_level()
-                        else:
-                            self.state = STATE_SUCCESS
+                        # Auto Start Video (No click needed)
+                        self.start_ending_sequence()
                     else:
                         self.state = STATE_FAIL
                 elif event.key == pygame.K_BACKSPACE:
@@ -215,7 +278,6 @@ class Game:
 
         # --- LOGIC & ANIMATIONS ---
         
-        # 1. LOGO FADE SEQUENCE
         if self.state == STATE_LOGO:
             fade_speed = 4
             if self.fade_mode == "IN":
@@ -225,40 +287,60 @@ class Game:
                     self.fade_mode = "WAIT"
                     self.start_time = current_time
             elif self.fade_mode == "WAIT":
-                if current_time - self.start_time > 2.0: # Wait 2 seconds
+                if current_time - self.start_time > 2.0: 
                     self.fade_mode = "OUT"
             elif self.fade_mode == "OUT":
                 self.fade_alpha += fade_speed
                 if self.fade_alpha >= 255:
                     self.state = STATE_MENU
-                    self.fade_mode = "IN" # Start Menu with Fade In
+                    self.fade_mode = "IN" 
 
-        # 2. MENU FADE IN
         elif self.state == STATE_MENU:
             if self.fade_mode == "IN":
                 self.fade_alpha -= 5
                 if self.fade_alpha <= 0:
                     self.fade_alpha = 0
                     self.fade_mode = "IDLE"
+        
+        # --- VIDEO FRAME UPDATE ---
+        elif self.state == STATE_VIDEO:
+            if self.cap is not None and self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frame = cv2.resize(frame, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                    frame = frame.swapaxes(0, 1)
+                    self.video_frame = pygame.surfarray.make_surface(frame)
+                else:
+                    # Video finished
+                    self.cap.release()
+                    
+                    # Restart BG Music
+                    self.play_bg_music()
+                    
+                    self.current_fps = 60 # Reset FPS
+                    self.state = STATE_ENDING
+                    self.slide_index = 0
+                    self.fade_alpha = 255
+                    self.fade_mode = "IN"
+        # ---------------------------
 
-        # 3. SLIDE FADE SEQUENCE
         elif self.state == STATE_ENDING:
-                    speed = 5
-                    if self.fade_mode == "IN":
-                        self.fade_alpha -= speed
-                        if self.fade_alpha <= 0:
-                            self.fade_alpha = 0
-                            self.fade_mode = "IDLE"
-                    elif self.fade_mode == "OUT":
-                        self.fade_alpha += speed
-                        if self.fade_alpha >= 255:
-                            self.slide_index += 1
-                            # যদি সব স্লাইড শেষ হয়ে যায়, তবে মেনুতে ফিরবে
-                            if self.slide_index >= len(ending_slides):
-                                self.state = STATE_MENU
-                                self.fade_mode = "IN"
-                            else:
-                                self.fade_mode = "IN"
+            speed = 5
+            if self.fade_mode == "IN":
+                self.fade_alpha -= speed
+                if self.fade_alpha <= 0:
+                    self.fade_alpha = 0
+                    self.fade_mode = "IDLE"
+            elif self.fade_mode == "OUT":
+                self.fade_alpha += speed
+                if self.fade_alpha >= 255:
+                    self.slide_index += 1
+                    if self.slide_index >= len(ending_slides):
+                        self.state = STATE_MENU
+                        self.fade_mode = "IN"
+                    else:
+                        self.fade_mode = "IN"
         elif self.state == STATE_SLIDE:
             speed = 5
             if self.fade_mode == "IN":
@@ -275,7 +357,6 @@ class Game:
                     else:
                         self.fade_mode = "IN"
 
-        # 4. GAME BLINKING
         if self.state == STATE_GAME and self.game_phase == "blink":
             if self.blink_idx < len(self.blink_sequence):
                 if current_time - self.last_blink_time > 1.2:
@@ -287,82 +368,62 @@ class Game:
     def draw(self):
         screen.fill(BLACK)
 
-        # --- DRAW VISUALS ---
         if self.state == STATE_LOGO:
             draw_image_fit(screen, assets["logo"])
 
         elif self.state == STATE_MENU:
             draw_image_fit(screen, assets["menu"])
             if self.fade_mode == "IDLE":
-                # Blink Logic:
-                # time.time() * 2 এর মানে হলো স্পিড কন্ট্রোল করা।
-                # % 2 == 0 দিয়ে আমরা অন/অফ লজিক তৈরি করছি।
                 if int(time.time() * 2) % 2 == 0:
                     txt = font_title1.render("CLICK TO START", True, WHITE)
-                    bg = txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)).inflate(20,10)
-                    # pygame.draw.rect(screen, BLACK, bg)
                     screen.blit(txt, txt.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80)))
 
         elif self.state in [STATE_SLIDE, STATE_ENDING]:
-            # কোন স্লাইড লিস্ট ব্যবহার হবে তা ঠিক করা
             current_list = slides if self.state == STATE_SLIDE else ending_slides
             
             if self.slide_index < len(current_list):
                 data = current_list[self.slide_index]
                 draw_image_fit(screen, assets[data["img"]])
 
-                # --- MULTI-LINE TEXT LOGIC ---
-                lines = data["txt"] # এটি এখন একটি লিস্ট
-                position = data.get("pos", "bottom") # ডিফল্ট ভ্যালু 'bottom'
+                lines = data["txt"] 
+                position = data.get("pos", "bottom")
 
-                # ফন্ট হাইট বের করা
                 line_height = font_subtitle.get_height() + 5
                 total_text_height = len(lines) * line_height
 
-                # Y পজিশন ঠিক করা (মাঝখানে নাকি নিচে)
                 start_y = 0
                 if position == "center":
                     start_y = (SCREEN_HEIGHT - total_text_height) // 2
-                else: # bottom
-                    # নিচে হলে কালো ব্যাকগ্রাউন্ড দিন
+                else: 
                     s = pygame.Surface((SCREEN_WIDTH, total_text_height + 40))
                     s.set_alpha(200); s.fill(BLACK)
                     screen.blit(s, (0, SCREEN_HEIGHT - (total_text_height + 40)))
                     start_y = SCREEN_HEIGHT - (total_text_height + 20)
 
-                # লুপ চালিয়ে লাইনগুলো আঁকা
                 for i, line in enumerate(lines):
                     txt_surf = font_subtitle.render(line, True, WHITE)
-                    # সবসময় হরাইজন্টালি (X-axis) মাঝখানে থাকবে
                     text_x = (SCREEN_WIDTH - txt_surf.get_width()) // 2
                     text_y = start_y + (i * line_height)
                     
-                    # সেন্টারে থাকলে টেক্সটের নিচে একটু শ্যাডো দিলে পড়া সহজ হয়
                     if position == "center":
                         shadow = font_subtitle.render(line, True, BLACK)
                         screen.blit(shadow, (text_x + 2, text_y + 2))
 
                     screen.blit(txt_surf, (text_x, text_y))
-        # --- DIALOGUE & GAME (They share the Wall Image) ---
+        
         elif self.state in [STATE_DIALOGUE, STATE_GAME]:
             self.wall_rect = draw_image_fit(screen, assets["wall"])
 
-            # DIALOGUE OVERLAY (Text at bottom)
             if self.state == STATE_DIALOGUE:
-                # Black bar at bottom
                 pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT-120, SCREEN_WIDTH, 120))
-                
                 name = font_title.render("Joyce:", True, RED)
                 msg = font_subtitle.render('"Will, Where are you?"', True, WHITE)
                 hint = font_debug.render("(Click to start connection...)", True, GRAY)
-                
                 screen.blit(name, (50, SCREEN_HEIGHT - 100))
                 screen.blit(msg, (170, SCREEN_HEIGHT - 95))
                 screen.blit(hint, (50, SCREEN_HEIGHT - 40))
 
-            # GAME LOGIC (Lights & Input)
             elif self.state == STATE_GAME:
-                # BLINKING
                 if self.game_phase == "blink":
                     if self.blink_idx < len(self.blink_sequence):
                         letter = self.blink_sequence[self.blink_idx]
@@ -373,7 +434,6 @@ class Game:
                             pygame.draw.circle(glow, (237, 195, 13), (30, 30), 4)
                             screen.blit(glow, (self.wall_rect.x + lx - 30, self.wall_rect.y + ly - 30))
                 
-                # INPUT
                 elif self.game_phase == "input":
                     pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT-80, SCREEN_WIDTH, 80))
                     prompt = font_subtitle.render("TYPE: " + self.user_input + "_", True, RED)
@@ -383,19 +443,22 @@ class Game:
                     d = font_debug.render("DEBUG: Click letters for coords", True, CYAN)
                     screen.blit(d, (10, 10))
 
-        # SUCCESS / FAIL
-        elif self.state == STATE_SUCCESS:
-            draw_image_fit(screen, assets["mom_run"])
-            txt = font_title.render("SAFE!", True, YELLOW)
-            screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, 50))
+        # elif self.state == STATE_SUCCESS:
+        #     draw_image_fit(screen, assets["mom_run"])
+        #     txt = font_title.render("SAFE!", True, YELLOW)
+        #     screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, 50))
 
         elif self.state == STATE_FAIL:
             draw_image_fit(screen, assets["demogorgon"])
-            txt = font_title.render("GAME OVER", True, RED)
+            txt = font_title.render("", True, RED)
             screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, SCREEN_HEIGHT - 100))
-            self.state = STATE_GAME  # Restart game immediately for simplicity
-        # --- GLOBAL FADE OVERLAY ---
-        # Apply fade effect for Logo, Menu, and Slides
+        
+        elif self.state == STATE_VIDEO:
+            if self.video_frame is not None:
+                screen.blit(self.video_frame, (0, 0))
+            else:
+                screen.fill(BLACK)
+
         if self.state in [STATE_LOGO, STATE_MENU, STATE_SLIDE, STATE_ENDING]:
             if self.fade_alpha > 0:
                 overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -404,9 +467,10 @@ class Game:
                 screen.blit(overlay, (0, 0))
 
         pygame.display.flip()
-        clock.tick(60)
+        
+        # FPS Control (Dynamic for Video Sync)
+        clock.tick(game.current_fps)
 
-# --- Entry Point ---
 if __name__ == "__main__":
     game = Game()
     while True:
